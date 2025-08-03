@@ -148,6 +148,7 @@ build/
 Claude.md
 !scripts
 !src
+!src/data
 # Custom
 scratch/
 experiments/
