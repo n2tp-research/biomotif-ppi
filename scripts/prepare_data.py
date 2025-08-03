@@ -16,6 +16,8 @@ from typing import Dict
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+from data.esm_embeddings import ESMEmbeddingGenerator
+
 
 def download_sequences_from_uniprot(protein_ids: list, output_file: str):
     """
@@ -38,69 +40,63 @@ def download_sequences_from_uniprot(protein_ids: list, output_file: str):
     return sequences
 
 
-def prepare_bernett_gold_dataset(config_path: str, output_dir: str):
+def prepare_bernett_gold_dataset(config_path: str, output_dir: str, generate_embeddings: bool = True):
     """
     Prepare the Bernett Gold PPI dataset for training.
+    Downloads dataset and generates ESM-2 embeddings.
     """
     # Load config
     import yaml
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
-    # Create output directory
+    # Create directories
     os.makedirs(output_dir, exist_ok=True)
+    cache_dir = config['data']['cache_dir']
+    os.makedirs(cache_dir, exist_ok=True)
     
     print("Loading Bernett Gold PPI dataset from Hugging Face...")
+    print("Note: Sequences are included in the dataset (SeqA and SeqB fields)")
     
-    # Collect all unique protein IDs
-    all_protein_ids = set()
+    # Collect all sequences
+    all_sequences = {}
+    total_samples = 0
+    stats = {}
     
     for split in ['train', 'valid', 'test']:
-        print(f"Processing {split} split...")
+        print(f"\nProcessing {split} split...")
         dataset = load_dataset(
             config['data']['dataset_name'],
             split=split,
             cache_dir=output_dir
         )
         
-        for item in tqdm(dataset, desc=f"Collecting protein IDs from {split}"):
-            all_protein_ids.add(item['SeqA'])
-            all_protein_ids.add(item['SeqB'])
-    
-    print(f"Found {len(all_protein_ids)} unique protein IDs")
-    
-    # Check if sequence file already exists
-    sequence_file = os.path.join(
-        output_dir,
-        f"sequences_{config['data']['uniprot_release']}.pkl"
-    )
-    
-    if os.path.exists(sequence_file):
-        print(f"Sequence file already exists at {sequence_file}")
-        with open(sequence_file, 'rb') as f:
-            sequences = pickle.load(f)
-        print(f"Loaded {len(sequences)} sequences")
-    else:
-        print("\nDownloading sequences from UniProt...")
-        print("Note: This is using dummy sequences for demonstration.")
-        print("In production, implement proper UniProt downloading.")
+        num_samples = len(dataset)
+        total_samples += num_samples
+        stats[f'{split}_samples'] = num_samples
         
-        sequences = download_sequences_from_uniprot(
-            list(all_protein_ids),
-            sequence_file
-        )
+        # Collect sequences with unique IDs matching dataset.py
+        for idx, item in enumerate(tqdm(dataset, desc=f"Collecting from {split}")):
+            seq_a = item['SeqA']
+            seq_b = item['SeqB']
+            
+            # Create IDs that match dataset.py
+            id_a = f"{split}_{idx}_A"
+            id_b = f"{split}_{idx}_B"
+            
+            all_sequences[id_a] = seq_a
+            all_sequences[id_b] = seq_b
         
-        # Save sequences
-        print(f"Saving sequences to {sequence_file}")
-        with open(sequence_file, 'wb') as f:
-            pickle.dump(sequences, f)
+        # Show sample
+        if num_samples > 0:
+            sample = dataset[0]
+            print(f"Sample keys: {list(sample.keys())}")
+            print(f"SeqA length: {len(sample['SeqA'])}")
+            print(f"SeqB length: {len(sample['SeqB'])}")
+            print(f"Label: {sample['labels']}")
     
-    # Create dataset statistics
-    stats = {
-        'total_proteins': len(all_protein_ids),
-        'proteins_with_sequences': len(sequences),
-        'missing_sequences': len(all_protein_ids) - len(sequences)
-    }
+    stats['total_samples'] = total_samples
+    stats['total_sequences'] = len(all_sequences)
     
     # Save statistics
     stats_file = os.path.join(output_dir, 'dataset_stats.txt')
@@ -111,7 +107,35 @@ def prepare_bernett_gold_dataset(config_path: str, output_dir: str):
             f.write(f"{key}: {value}\n")
     
     print(f"\nDataset statistics saved to {stats_file}")
-    print("Data preparation completed!")
+    print(f"Total sequences to embed: {len(all_sequences)}")
+    
+    # Generate ESM embeddings if requested
+    if generate_embeddings:
+        print("\n" + "="*50)
+        print("Generating ESM-2 embeddings...")
+        print("="*50)
+        
+        # Check device
+        import torch
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"Using device: {device}")
+        
+        # Initialize embedding generator
+        esm_generator = ESMEmbeddingGenerator(config, device=device)
+        
+        # Generate embeddings
+        cache_path = esm_generator.generate_embeddings(
+            all_sequences,
+            "bernett_gold_ppi",
+            force_regenerate=True
+        )
+        
+        print(f"\nEmbeddings saved to: {cache_path}")
+        print(f"Cache file size: {os.path.getsize(cache_path) / (1024**3):.2f} GB")
+    else:
+        print("\nSkipping embedding generation (use --generate-embeddings to enable)")
+    
+    print("\nData preparation completed!")
 
 
 def main():
@@ -120,10 +144,16 @@ def main():
                         help='Path to configuration file')
     parser.add_argument('--output-dir', type=str, default='./data',
                         help='Output directory for prepared data')
+    parser.add_argument('--generate-embeddings', action='store_true',
+                        help='Generate ESM-2 embeddings (default: True)')
+    parser.add_argument('--no-generate-embeddings', dest='generate_embeddings', 
+                        action='store_false',
+                        help='Skip ESM-2 embedding generation')
+    parser.set_defaults(generate_embeddings=True)
     
     args = parser.parse_args()
     
-    prepare_bernett_gold_dataset(args.config, args.output_dir)
+    prepare_bernett_gold_dataset(args.config, args.output_dir, args.generate_embeddings)
 
 
 if __name__ == '__main__':

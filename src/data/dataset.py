@@ -46,27 +46,32 @@ class PPIDataset(Dataset):
         
         # Process interactions
         self.interactions = []
-        self.protein_ids = set()
+        self.sequences = {}
         
-        for item in tqdm(self.dataset, desc=f"Processing {split} data"):
-            protein_a = item['SeqA']
-            protein_b = item['SeqB']
+        for idx, item in enumerate(tqdm(self.dataset, desc=f"Processing {split} data")):
+            seq_a = item['SeqA']
+            seq_b = item['SeqB']
             label = item['labels']
             
+            # Create unique IDs that match the embedding cache
+            id_a = f"{split}_{idx}_A"
+            id_b = f"{split}_{idx}_B"
+            
+            # Store sequences
+            self.sequences[id_a] = seq_a
+            self.sequences[id_b] = seq_b
+            
             self.interactions.append({
-                'protein_a': protein_a,
-                'protein_b': protein_b,
+                'protein_a': id_a,
+                'protein_b': id_b,
                 'label': label
             })
-            
-            self.protein_ids.add(protein_a)
-            self.protein_ids.add(protein_b)
         
-        print(f"Loaded {len(self.interactions)} interactions with {len(self.protein_ids)} unique proteins")
+        print(f"Loaded {len(self.interactions)} interactions with {len(self.sequences)} sequences")
         
-        # Load or prepare sequence dictionary
+        # Use sequences from dataset or provided dict
         if sequence_dict is None:
-            self.sequence_dict = self._load_sequences()
+            self.sequence_dict = self.sequences
         else:
             self.sequence_dict = sequence_dict
             

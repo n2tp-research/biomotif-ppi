@@ -54,45 +54,24 @@ def prepare_data(config: dict):
     # Initialize property encoder
     prop_encoder = PhysicochemicalEncoder(config)
     
-    # Check for sequence file
-    sequence_file = os.path.join(
+    # Check for cached embeddings
+    embedding_cache_path = os.path.join(
         config['data']['cache_dir'],
-        f"sequences_{config['data']['uniprot_release']}.pkl"
+        'bernett_gold_ppi_facebook_esm2_t33_650M_UR50D_embeddings.h5'
     )
     
-    if not os.path.exists(sequence_file):
-        print(f"WARNING: Sequence file not found at {sequence_file}")
-        print("Please download sequences from UniProt or provide pre-downloaded sequences.")
-        print("Expected format: pickle file with dict mapping protein_id -> sequence")
+    if not os.path.exists(embedding_cache_path):
+        print(f"ERROR: Embedding cache not found at {embedding_cache_path}")
+        print("Please run: python scripts/generate_embeddings.py")
         return None, None, None
     
-    # Load sequences
-    import pickle
-    with open(sequence_file, 'rb') as f:
-        sequence_dict = pickle.load(f)
-    print(f"Loaded {len(sequence_dict)} protein sequences")
+    print(f"Using cached embeddings from {embedding_cache_path}")
     
-    # Initialize ESM embedding generator
-    esm_generator = ESMEmbeddingGenerator(config)
-    
-    # Check if embeddings need to be generated
-    embedding_cache_path = esm_generator._get_cache_path("ppi_dataset")
-    
-    if not os.path.exists(embedding_cache_path) or config.get('force_regenerate_embeddings', False):
-        print("Generating ESM-2 embeddings (this may take a while)...")
-        embedding_cache_path = esm_generator.generate_embeddings(
-            sequence_dict,
-            "ppi_dataset",
-            force_regenerate=config.get('force_regenerate_embeddings', False)
-        )
-    else:
-        print(f"Using cached embeddings from {embedding_cache_path}")
-    
-    # Create datasets
+    # Create datasets (sequences are loaded from HuggingFace directly)
     train_dataset = PPIDataset(
         split=config['data']['train_split'],
         config=config,
-        sequence_dict=sequence_dict,
+        sequence_dict=None,  # Will use sequences from dataset
         embedding_cache=embedding_cache_path,
         transform=lambda x: add_properties(x, prop_encoder)
     )
@@ -100,7 +79,7 @@ def prepare_data(config: dict):
     val_dataset = PPIDataset(
         split=config['data']['val_split'],
         config=config,
-        sequence_dict=sequence_dict,
+        sequence_dict=None,
         embedding_cache=embedding_cache_path,
         transform=lambda x: add_properties(x, prop_encoder)
     )
@@ -108,7 +87,7 @@ def prepare_data(config: dict):
     test_dataset = PPIDataset(
         split=config['data']['test_split'],
         config=config,
-        sequence_dict=sequence_dict,
+        sequence_dict=None,
         embedding_cache=embedding_cache_path,
         transform=lambda x: add_properties(x, prop_encoder)
     )
