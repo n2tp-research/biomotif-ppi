@@ -1,0 +1,155 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Virtual environments
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+.DS_Store
+
+# Data and cache
+data/
+cache/
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+sequences_*.pkl
+*_embeddings.h5
+
+# Model checkpoints and outputs
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+best_model.pt
+checkpoint_*.pt
+
+# Logs
+logs/
+runs/
+wandb/
+tensorboard/
+*.log
+.wandb/
+
+# Results and plots
+results/
+figures/
+plots/
+*.png
+*.jpg
+*.pdf
+*.svg
+
+# Large files
+*.tar
+*.tar.gz
+*.zip
+*.gz
+
+# Temporary files
+*.tmp
+*.temp
+.temp/
+tmp/
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Documentation build
+docs/_build/
+docs/build/
+site/
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+
+# Profiling
+*.prof
+*.lprof
+
+# C extensions
+*.so
+*.dylib
+*.dll
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Backup files
+*.bak
+*.backup
+*~
+Claude.md
+!scripts
+!src
+# Custom
+scratch/
+experiments/
+old/
+deprecated/
