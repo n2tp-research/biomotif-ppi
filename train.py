@@ -55,9 +55,10 @@ def prepare_data(config: dict):
     prop_encoder = PhysicochemicalEncoder(config)
     
     # Check for cached embeddings
+    model_name = config['esm']['model_name'].replace('/', '_')
     embedding_cache_path = os.path.join(
         config['data']['cache_dir'],
-        'bernett_gold_ppi_facebook_esm2_t33_650M_UR50D_embeddings.h5'
+        f'bernett_gold_ppi_{model_name}_embeddings.h5'
     )
     
     if not os.path.exists(embedding_cache_path):
