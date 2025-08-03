@@ -40,7 +40,7 @@ def download_sequences_from_uniprot(protein_ids: list, output_file: str):
     return sequences
 
 
-def prepare_bernett_gold_dataset(config_path: str, output_dir: str, generate_embeddings: bool = True):
+def prepare_bernett_gold_dataset(config_path: str, output_dir: str, generate_embeddings: bool = True, batch_size: int = None):
     """
     Prepare the Bernett Gold PPI dataset for training.
     Downloads dataset and generates ESM-2 embeddings.
@@ -120,6 +120,14 @@ def prepare_bernett_gold_dataset(config_path: str, output_dir: str, generate_emb
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         print(f"Using device: {device}")
         
+        # Override batch size if specified
+        if batch_size is not None:
+            original_batch_size = config['esm']['batch_size']
+            config['esm']['batch_size'] = batch_size
+            print(f"Using batch size: {batch_size} (overriding config: {original_batch_size})")
+        else:
+            print(f"Using batch size from config: {config['esm']['batch_size']}")
+        
         # Initialize embedding generator
         esm_generator = ESMEmbeddingGenerator(config, device=device)
         
@@ -149,11 +157,13 @@ def main():
     parser.add_argument('--no-generate-embeddings', dest='generate_embeddings', 
                         action='store_false',
                         help='Skip ESM-2 embedding generation')
+    parser.add_argument('--batch-size', type=int, default=None,
+                        help='Batch size for ESM-2 embedding generation (default: use config)')
     parser.set_defaults(generate_embeddings=True)
     
     args = parser.parse_args()
     
-    prepare_bernett_gold_dataset(args.config, args.output_dir, args.generate_embeddings)
+    prepare_bernett_gold_dataset(args.config, args.output_dir, args.generate_embeddings, args.batch_size)
 
 
 if __name__ == '__main__':
