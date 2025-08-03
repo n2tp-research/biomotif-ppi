@@ -34,7 +34,7 @@ data:
 
 # ESM-2 Configuration
 esm:
-  model_name: "facebook/esm2_t12_150M_UR50D"
+  model_name: "facebook/esm2_t30_150M_UR50D"
   embedding_dim: 640
   batch_size: 32
   max_length: 1022
