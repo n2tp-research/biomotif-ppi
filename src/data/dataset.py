@@ -21,6 +21,8 @@ class PPIDataset(Dataset):
         config: Dict,
         sequence_dict: Optional[Dict[str, str]] = None,
         embedding_cache: Optional[str] = None,
+        properties_cache: Optional[str] = None,
+        graph_cache: Optional[str] = None,
         transform=None
     ):
         """
@@ -35,6 +37,8 @@ class PPIDataset(Dataset):
         self.config = config
         self.transform = transform
         self.embedding_cache = embedding_cache
+        self.properties_cache = properties_cache
+        self.graph_cache = graph_cache
         
         # Load dataset from Hugging Face
         print(f"Loading {split} split from Hugging Face...")
@@ -83,6 +87,18 @@ class PPIDataset(Dataset):
             self.embedding_h5 = h5py.File(self.embedding_cache, 'r')
         else:
             self.embedding_h5 = None
+            
+        # Initialize properties cache if provided
+        if self.properties_cache:
+            self.properties_h5 = h5py.File(self.properties_cache, 'r')
+        else:
+            self.properties_h5 = None
+            
+        # Initialize graph cache if provided
+        if self.graph_cache:
+            self.graph_h5 = h5py.File(self.graph_cache, 'r')
+        else:
+            self.graph_h5 = None
     
     def _load_sequences(self) -> Dict[str, str]:
         """Load protein sequences from UniProt or cached file."""
@@ -191,6 +207,36 @@ class PPIDataset(Dataset):
                     self.embedding_h5[interaction['protein_b']][:]
                 )
         
+        # Load properties from cache if available
+        if self.properties_h5:
+            if interaction['protein_a'] in self.properties_h5:
+                item['properties_a'] = torch.from_numpy(
+                    self.properties_h5[interaction['protein_a']][:]
+                )
+            if interaction['protein_b'] in self.properties_h5:
+                item['properties_b'] = torch.from_numpy(
+                    self.properties_h5[interaction['protein_b']][:]
+                )
+        
+        # Load graph data from cache if available
+        if self.graph_h5:
+            if interaction['protein_a'] in self.graph_h5:
+                grp_a = self.graph_h5[interaction['protein_a']]
+                item['graph_a'] = {
+                    'edge_index': torch.from_numpy(grp_a['edge_index'][:]),
+                    'num_nodes': grp_a.attrs['num_nodes'],
+                    'num_edges': grp_a.attrs['num_edges'],
+                    'avg_degree': grp_a.attrs['avg_degree']
+                }
+            if interaction['protein_b'] in self.graph_h5:
+                grp_b = self.graph_h5[interaction['protein_b']]
+                item['graph_b'] = {
+                    'edge_index': torch.from_numpy(grp_b['edge_index'][:]),
+                    'num_nodes': grp_b.attrs['num_nodes'],
+                    'num_edges': grp_b.attrs['num_edges'],
+                    'avg_degree': grp_b.attrs['avg_degree']
+                }
+        
         if self.transform:
             item = self.transform(item)
             
@@ -204,6 +250,10 @@ class PPIDataset(Dataset):
         """Close any open file handles."""
         if self.embedding_h5:
             self.embedding_h5.close()
+        if self.properties_h5:
+            self.properties_h5.close()
+        if self.graph_h5:
+            self.graph_h5.close()
 
 
 def collate_fn(batch: List[Dict]) -> Dict[str, torch.Tensor]:
@@ -266,5 +316,10 @@ def collate_fn(batch: List[Dict]) -> Dict[str, torch.Tensor]:
         # Create attention masks
         collated['mask_a'] = torch.arange(max_len_a)[None, :] < collated['lengths_a'][:, None]
         collated['mask_b'] = torch.arange(max_len_b)[None, :] < collated['lengths_b'][:, None]
+    
+    # Add graph data if available
+    if 'graph_a' in batch[0]:
+        collated['graphs_a'] = [item['graph_a'] for item in batch]
+        collated['graphs_b'] = [item['graph_b'] for item in batch]
     
     return collated

@@ -282,6 +282,84 @@ class AllostericGNN(nn.Module):
                 layers.append(nn.Dropout(0.1))
         return nn.Sequential(*layers)
     
+    def use_cached_graphs(
+        self,
+        features: torch.Tensor,
+        properties: torch.Tensor,
+        cached_graphs: List[Dict],
+        mask: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Use pre-computed graph structures from cache.
+        
+        Args:
+            features: Node features [batch, seq_len, dim]
+            properties: Physicochemical properties [batch, seq_len, 12]
+            cached_graphs: List of cached graph dictionaries
+            mask: Optional attention mask [batch, seq_len]
+            
+        Returns:
+            Tuple of (node_features, edge_index, batch_assignment)
+        """
+        batch_size = features.shape[0]
+        device = features.device
+        
+        # Prepare node features and batch assignments
+        node_features_list = []
+        edge_list = []
+        node_batch = []
+        
+        node_offset = 0
+        
+        for batch_idx in range(batch_size):
+            # Get cached graph for this sample
+            graph_data = cached_graphs[batch_idx]
+            
+            # Get number of nodes (from cache or actual sequence)
+            if mask is not None:
+                num_nodes = int(mask[batch_idx].sum().item())
+            else:
+                num_nodes = graph_data['num_nodes']
+            
+            # Extract node features
+            sample_features = features[batch_idx, :num_nodes]
+            sample_props = properties[batch_idx, :num_nodes]
+            
+            # Combine features
+            combined = torch.cat([sample_features, sample_props], dim=-1)
+            node_features_list.append(combined)
+            
+            # Add edges with offset
+            cached_edges = graph_data['edge_index']
+            if cached_edges.shape[1] > 0:
+                # Filter edges to only include valid nodes
+                valid_mask = (cached_edges[0] < num_nodes) & (cached_edges[1] < num_nodes)
+                valid_edges = cached_edges[:, valid_mask]
+                
+                # Add offset for batch processing
+                offset_edges = valid_edges + node_offset
+                edge_list.append(offset_edges.t())
+            
+            # Batch assignment
+            node_batch.extend([batch_idx] * num_nodes)
+            node_offset += num_nodes
+        
+        # Combine all nodes
+        if node_features_list:
+            node_features = torch.cat(node_features_list, dim=0)
+            node_batch = torch.tensor(node_batch, dtype=torch.long, device=device)
+        else:
+            node_features = torch.zeros((0, features.shape[-1] + properties.shape[-1]), device=device)
+            node_batch = torch.zeros(0, dtype=torch.long, device=device)
+        
+        # Combine edges
+        if edge_list:
+            edge_index = torch.cat(edge_list, dim=0).t().to(device)
+        else:
+            edge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
+        
+        return node_features, edge_index, node_batch
+    
     def construct_graph(
         self,
         features: torch.Tensor,
@@ -387,7 +465,8 @@ class AllostericGNN(nn.Module):
         self,
         features: torch.Tensor,
         properties: torch.Tensor,
-        mask: Optional[torch.Tensor] = None
+        mask: Optional[torch.Tensor] = None,
+        cached_graphs: Optional[List[Dict]] = None
     ) -> Dict[str, torch.Tensor]:
         """
         Forward pass through Allosteric GNN.
@@ -396,12 +475,19 @@ class AllostericGNN(nn.Module):
             features: Encoded features [batch, seq_len, dim]
             properties: Physicochemical properties [batch, seq_len, 12]
             mask: Optional mask [batch, seq_len]
+            cached_graphs: Optional list of cached graph structures
             
         Returns:
             Dictionary with GNN outputs
         """
-        # Construct graph
-        node_features, edge_index, batch = self.construct_graph(features, properties, mask)
+        # Use cached graphs if available, otherwise construct
+        if cached_graphs is not None:
+            node_features, edge_index, batch = self.use_cached_graphs(
+                features, properties, cached_graphs, mask
+            )
+        else:
+            # Construct graph dynamically (fallback)
+            node_features, edge_index, batch = self.construct_graph(features, properties, mask)
         
         # Project to GNN dimension
         x = self.input_proj(node_features)

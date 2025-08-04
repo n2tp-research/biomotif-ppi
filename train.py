@@ -18,8 +18,6 @@ from torch.utils.data import DataLoader
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from data.dataset import PPIDataset, collate_fn
-from data.esm_embeddings import ESMEmbeddingGenerator
-from data.properties import PhysicochemicalEncoder
 from models.biomotif_ppi import create_model
 from training.trainer import BioMotifTrainer
 from utils.metrics import evaluate_model, MetricsCalculator
@@ -51,9 +49,6 @@ def prepare_data(config: dict):
     """Prepare datasets and data loaders."""
     print("Preparing datasets...")
     
-    # Initialize property encoder
-    prop_encoder = PhysicochemicalEncoder(config)
-    
     # Check for cached embeddings
     model_name = config['esm']['model_name'].replace('/', '_')
     embedding_cache_path = os.path.join(
@@ -63,10 +58,37 @@ def prepare_data(config: dict):
     
     if not os.path.exists(embedding_cache_path):
         print(f"ERROR: Embedding cache not found at {embedding_cache_path}")
-        print("Please run: python scripts/generate_embeddings.py")
+        print("Please run: python scripts/prepare_data.py")
         return None, None, None
     
     print(f"Using cached embeddings from {embedding_cache_path}")
+    
+    # Check for cached properties
+    properties_cache_path = os.path.join(
+        config['data']['cache_dir'],
+        'bernett_gold_ppi_properties.h5'
+    )
+    
+    if not os.path.exists(properties_cache_path):
+        print(f"ERROR: Properties cache not found at {properties_cache_path}")
+        print("Please run: python scripts/prepare_properties.py")
+        return None, None, None
+    
+    print(f"Using cached properties from {properties_cache_path}")
+    
+    # Check for cached graphs
+    graph_cache_path = os.path.join(
+        config['data']['cache_dir'],
+        'bernett_gold_ppi_graphs.h5'
+    )
+    
+    if not os.path.exists(graph_cache_path):
+        print(f"Warning: Graph cache not found at {graph_cache_path}")
+        print("Graphs will be constructed on-the-fly (slower)")
+        print("To pre-compute graphs, run: python scripts/prepare_graphs.py")
+        graph_cache_path = None
+    else:
+        print(f"Using cached graphs from {graph_cache_path}")
     
     # Create datasets (sequences are loaded from HuggingFace directly)
     train_dataset = PPIDataset(
@@ -74,7 +96,9 @@ def prepare_data(config: dict):
         config=config,
         sequence_dict=None,  # Will use sequences from dataset
         embedding_cache=embedding_cache_path,
-        transform=lambda x: add_properties(x, prop_encoder)
+        properties_cache=properties_cache_path,
+        graph_cache=graph_cache_path,
+        transform=None  # All data is cached, no transform needed
     )
     
     val_dataset = PPIDataset(
@@ -82,7 +106,9 @@ def prepare_data(config: dict):
         config=config,
         sequence_dict=None,
         embedding_cache=embedding_cache_path,
-        transform=lambda x: add_properties(x, prop_encoder)
+        properties_cache=properties_cache_path,
+        graph_cache=graph_cache_path,
+        transform=None
     )
     
     test_dataset = PPIDataset(
@@ -90,7 +116,9 @@ def prepare_data(config: dict):
         config=config,
         sequence_dict=None,
         embedding_cache=embedding_cache_path,
-        transform=lambda x: add_properties(x, prop_encoder)
+        properties_cache=properties_cache_path,
+        graph_cache=graph_cache_path,
+        transform=None
     )
     
     # Create data loaders
@@ -129,14 +157,6 @@ def prepare_data(config: dict):
     print(f"Test samples: {len(test_dataset)}")
     
     return train_loader, val_loader, test_loader
-
-
-def add_properties(batch_item: dict, prop_encoder: PhysicochemicalEncoder) -> dict:
-    """Add physicochemical properties to batch item."""
-    # Encode properties for both sequences
-    batch_item['properties_a'] = prop_encoder.encode_sequence_with_ss(batch_item['sequence_a'])
-    batch_item['properties_b'] = prop_encoder.encode_sequence_with_ss(batch_item['sequence_b'])
-    return batch_item
 
 
 def main():
