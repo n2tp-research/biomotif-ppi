@@ -237,10 +237,11 @@ def collate_fn(batch: List[Dict]) -> Dict[str, torch.Tensor]:
         padded_embeddings_b = torch.zeros(batch_size, max_len_b, embedding_dim)
         
         for i, item in enumerate(batch):
-            len_a = len(item['sequence_a'])
-            len_b = len(item['sequence_b'])
-            padded_embeddings_a[i, :len_a] = item['embedding_a']
-            padded_embeddings_b[i, :len_b] = item['embedding_b']
+            # Use actual embedding length (may include special tokens)
+            emb_len_a = min(item['embedding_a'].shape[0], max_len_a)
+            emb_len_b = min(item['embedding_b'].shape[0], max_len_b)
+            padded_embeddings_a[i, :emb_len_a] = item['embedding_a'][:emb_len_a]
+            padded_embeddings_b[i, :emb_len_b] = item['embedding_b'][:emb_len_b]
         
         collated['embeddings_a'] = padded_embeddings_a
         collated['embeddings_b'] = padded_embeddings_b
