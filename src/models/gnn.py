@@ -175,31 +175,9 @@ class AllostericGNNLayer(nn.Module):
         """
         num_nodes = end_idx - start_idx
         
-        if self.use_flash and num_nodes > 32:  # Use Flash for larger graphs
-            # Create dense attention mask from edges
-            attn_mask = torch.zeros(
-                num_nodes, num_nodes,
-                dtype=torch.bool, device=queries.device
-            )
-            src, dst = edge_index
-            attn_mask[dst, src] = True  # Message from src to dst
-            
-            # Add self-loops
-            attn_mask[torch.arange(num_nodes), torch.arange(num_nodes)] = True
-            
-            # Use Flash Attention
-            out = flash_attn_func(
-                queries.unsqueeze(0),  # [1, num_nodes, heads, dim]
-                keys.unsqueeze(0),
-                values.unsqueeze(0),
-                dropout_p=0.0,  # Dropout handled separately
-                softmax_scale=1.0 / math.sqrt(self.head_dim),
-                causal=False,
-                window_size=(-1, -1),
-                alibi_slopes=None,
-                deterministic=False,
-                attn_mask=attn_mask.unsqueeze(0)
-            ).squeeze(0)
+        # Always use standard attention for graphs (Flash Attention doesn't support sparse masks)
+        if False:  # Disabled Flash Attention for sparse graph structures
+            pass
         else:
             # Standard attention with sparse computation
             out = torch.zeros_like(queries)
