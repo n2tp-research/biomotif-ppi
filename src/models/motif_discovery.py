@@ -143,6 +143,12 @@ class MotifDiscoveryModule(nn.Module):
         """
         batch_size, seq_len, dim = queries.shape
         
+        # Ensure all tensors have the same dtype (use float16 for Flash Attention)
+        dtype = torch.float16 if queries.device.type == 'cuda' else queries.dtype
+        queries = queries.to(dtype)
+        keys = keys.to(dtype)
+        values = values.to(dtype)
+        
         # Apply temperature scaling
         temperature = torch.clamp(self.temperature, self.temperature_range[0], self.temperature_range[1])
         scale = 1.0 / (math.sqrt(dim) * temperature)
@@ -196,8 +202,8 @@ class MotifDiscoveryModule(nn.Module):
         # Project features to query space
         queries = self.query_projection(features)  # [batch, seq_len, motif_dim]
         
-        # Expand motif bank for batch
-        keys = self.motif_bank.unsqueeze(0).expand(batch_size, -1, -1)  # [batch, num_motifs, motif_dim]
+        # Expand motif bank for batch and ensure same dtype as queries
+        keys = self.motif_bank.unsqueeze(0).expand(batch_size, -1, -1).to(queries.dtype)  # [batch, num_motifs, motif_dim]
         values = keys  # Same as keys for motif discovery
         
         # Apply attention mechanism
