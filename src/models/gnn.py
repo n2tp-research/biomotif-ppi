@@ -192,15 +192,24 @@ class AllostericGNNLayer(nn.Module):
                 neighbors = torch.cat([neighbors, torch.tensor([node], device=neighbors.device)])
                 
                 # Compute attention scores
-                q = queries[node:node+1]  # [1, heads, dim]
+                q = queries[node]  # [heads, dim]
                 k = keys[neighbors]  # [num_neighbors, heads, dim]
+                v = values[neighbors]  # [num_neighbors, heads, dim]
                 
-                scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+                # Reshape for batch matrix multiplication
+                # q: [heads, dim] -> [heads, 1, dim]
+                # k: [num_neighbors, heads, dim] -> [heads, num_neighbors, dim]
+                # v: [num_neighbors, heads, dim] -> [heads, num_neighbors, dim]
+                q = q.unsqueeze(1)  # [heads, 1, dim]
+                k = k.transpose(0, 1)  # [heads, num_neighbors, dim]
+                v = v.transpose(0, 1)  # [heads, num_neighbors, dim]
+                
+                # Compute attention: [heads, 1, dim] @ [heads, dim, num_neighbors] = [heads, 1, num_neighbors]
+                scores = torch.bmm(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
                 attn_weights = F.softmax(scores, dim=-1)
                 
-                # Apply to values
-                v = values[neighbors]  # [num_neighbors, heads, dim]
-                out[node] = torch.matmul(attn_weights, v).squeeze(0)
+                # Apply to values: [heads, 1, num_neighbors] @ [heads, num_neighbors, dim] = [heads, 1, dim]
+                out[node] = torch.bmm(attn_weights, v).squeeze(1)  # [heads, dim]
         
         return out
 
