@@ -15,6 +15,8 @@ from tqdm import tqdm
 from pathlib import Path
 from datasets import load_dataset
 import torch.nn.functional as F
+from multiprocessing import Pool, cpu_count
+from functools import partial
 
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
@@ -116,14 +118,56 @@ def construct_protein_graph(
     }
 
 
-def prepare_graphs(config: dict, update_existing: bool = True):
+def compute_graphs_batch(batch_data, config, embeddings_dict, properties_dict):
+    """
+    Compute graph structures for a batch of proteins.
+    
+    Args:
+        batch_data: List of protein IDs
+        config: Configuration dictionary
+        embeddings_dict: Dictionary of embeddings
+        properties_dict: Dictionary of properties
+    
+    Returns:
+        List of (protein_id, graph_data) tuples
+    """
+    results = []
+    
+    for protein_id in batch_data:
+        try:
+            # Get embeddings and properties
+            if protein_id not in embeddings_dict or protein_id not in properties_dict:
+                results.append((protein_id, None))
+                continue
+            
+            embeddings = embeddings_dict[protein_id]
+            properties = properties_dict[protein_id]
+            
+            # Construct graph
+            graph_data = construct_protein_graph(embeddings, properties, config)
+            results.append((protein_id, graph_data))
+            
+        except Exception as e:
+            print(f"Error processing {protein_id}: {e}")
+            results.append((protein_id, None))
+    
+    return results
+
+
+def prepare_graphs(config: dict, update_existing: bool = True, num_workers: int = None):
     """
     Pre-compute graph structures for all protein pairs in the dataset.
     
     Args:
         config: Configuration dictionary
         update_existing: If True, update existing cache with missing entries
+        num_workers: Number of parallel workers (default: CPU count - 1)
     """
+    
+    if num_workers is None:
+        num_workers = max(1, cpu_count() - 1)
+    
+    print(f"Using {num_workers} parallel workers for graph construction")
     
     # Load embedding and property caches
     model_name = config['esm']['model_name'].replace('/', '_')
@@ -194,56 +238,82 @@ def prepare_graphs(config: dict, update_existing: bool = True):
     
     if not proteins_to_process:
         print("No new proteins to process. Graph cache is up to date.")
+        embeddings_h5.close()
+        properties_h5.close()
         return
+    
+    # Load all required data into memory for parallel processing
+    print("\nLoading data for parallel processing...")
+    proteins_list = list(proteins_to_process)
+    embeddings_dict = {}
+    properties_dict = {}
+    
+    for protein_id in tqdm(proteins_list, desc="Loading data"):
+        if protein_id in embeddings_h5 and protein_id in properties_h5:
+            embeddings_dict[protein_id] = embeddings_h5[protein_id][:]
+            properties_dict[protein_id] = properties_h5[protein_id][:]
+    
+    # Close files after loading
+    embeddings_h5.close()
+    properties_h5.close()
+    
+    # Create batches for parallel processing
+    batch_size = max(1, len(proteins_list) // (num_workers * 10))
+    batches = []
+    for i in range(0, len(proteins_list), batch_size):
+        batch = proteins_list[i:i+batch_size]
+        batches.append(batch)
+    
+    print(f"Processing {len(proteins_list)} proteins in {len(batches)} batches")
+    
+    # Process batches in parallel
+    compute_func = partial(compute_graphs_batch, 
+                          config=config, 
+                          embeddings_dict=embeddings_dict,
+                          properties_dict=properties_dict)
+    
+    with Pool(num_workers) as pool:
+        results = []
+        with tqdm(total=len(proteins_list), desc="Constructing graphs") as pbar:
+            for batch_results in pool.imap(compute_func, batches):
+                results.extend(batch_results)
+                pbar.update(len(batch_results))
     
     # Open cache file for writing
     mode = 'a' if (os.path.exists(graph_cache_path) and update_existing) else 'w'
     
+    print("\nSaving graphs to cache...")
+    success_count = 0
     with h5py.File(graph_cache_path, mode) as h5f:
-        # Process each protein
-        for protein_id in tqdm(proteins_to_process, desc="Constructing graphs"):
-            try:
-                # Load embeddings and properties
-                if protein_id not in embeddings_h5:
-                    print(f"Warning: No embeddings for {protein_id}")
-                    continue
-                if protein_id not in properties_h5:
-                    print(f"Warning: No properties for {protein_id}")
-                    continue
-                
-                embeddings = embeddings_h5[protein_id][:]
-                properties = properties_h5[protein_id][:]
-                
-                # Construct graph
-                graph_data = construct_protein_graph(embeddings, properties, config)
-                
-                # Create group for this protein
-                if protein_id in h5f:
-                    del h5f[protein_id]
-                
-                grp = h5f.create_group(protein_id)
-                
-                # Store graph data
-                grp.create_dataset('edge_index', data=graph_data['edge_index'], 
-                                   compression='gzip', compression_opts=4)
-                grp.create_dataset('degrees', data=graph_data['degrees'],
-                                   compression='gzip', compression_opts=4)
-                
-                # Store statistics as attributes
-                grp.attrs['num_nodes'] = graph_data['num_nodes']
-                grp.attrs['num_edges'] = graph_data['num_edges']
-                grp.attrs['avg_degree'] = graph_data['avg_degree']
-                grp.attrs['max_degree'] = graph_data['max_degree']
-                
-            except Exception as e:
-                print(f"Error processing {protein_id}: {e}")
-                continue
+        for protein_id, graph_data in tqdm(results, desc="Writing to HDF5"):
+            if graph_data is not None:
+                try:
+                    # Create group for this protein
+                    if protein_id in h5f:
+                        del h5f[protein_id]
+                    
+                    grp = h5f.create_group(protein_id)
+                    
+                    # Store graph data
+                    grp.create_dataset('edge_index', data=graph_data['edge_index'], 
+                                       compression='gzip', compression_opts=4)
+                    grp.create_dataset('degrees', data=graph_data['degrees'],
+                                       compression='gzip', compression_opts=4)
+                    
+                    # Store statistics as attributes
+                    grp.attrs['num_nodes'] = graph_data['num_nodes']
+                    grp.attrs['num_edges'] = graph_data['num_edges']
+                    grp.attrs['avg_degree'] = graph_data['avg_degree']
+                    grp.attrs['max_degree'] = graph_data['max_degree']
+                    
+                    success_count += 1
+                except Exception as e:
+                    print(f"Error saving {protein_id}: {e}")
+            else:
+                print(f"Skipping {protein_id} (graph construction failed)")
     
-    # Close input files
-    embeddings_h5.close()
-    properties_h5.close()
-    
-    print(f"\nGraphs cached successfully at {graph_cache_path}")
+    print(f"\nSuccessfully processed {success_count}/{len(results)} graphs")
+    print(f"Graphs cached at {graph_cache_path}")
     
     # Verify cache
     with h5py.File(graph_cache_path, 'r') as h5f:
@@ -267,6 +337,8 @@ def main():
                         help='Update existing cache with missing entries')
     parser.add_argument('--force', action='store_true',
                         help='Regenerate all graphs (ignore existing cache)')
+    parser.add_argument('--num-workers', type=int, default=None,
+                        help='Number of parallel workers (default: CPU count - 1)')
     
     args = parser.parse_args()
     
@@ -282,7 +354,7 @@ def main():
     
     # Prepare graphs
     update_existing = args.update and not args.force
-    prepare_graphs(config, update_existing=update_existing)
+    prepare_graphs(config, update_existing=update_existing, num_workers=args.num_workers)
     
     print("\nGraph preparation complete!")
 
