@@ -106,7 +106,8 @@ class PPIDataset(Dataset):
         """Validate sequences according to criteria in config."""
         min_len = self.config['data']['min_seq_length']
         max_len = self.config['data']['max_seq_length']
-        non_standard = set(self.config['data']['non_standard_aa'])
+        remove_non_standard = self.config['data'].get('remove_non_standard_aa', True)
+        non_standard = set(self.config['data']['non_standard_aa']) if remove_non_standard else set()
         max_gap_frac = self.config['data']['max_gap_fraction']
         max_unk_frac = self.config['data']['max_unknown_fraction']
         
@@ -127,8 +128,8 @@ class PPIDataset(Dataset):
             if not (min_len <= len(seq_a) <= max_len and min_len <= len(seq_b) <= max_len):
                 continue
             
-            # Non-standard amino acid check
-            if any(aa in non_standard for aa in seq_a) or any(aa in non_standard for aa in seq_b):
+            # Non-standard amino acid check (only if enabled)
+            if remove_non_standard and (any(aa in non_standard for aa in seq_a) or any(aa in non_standard for aa in seq_b)):
                 continue
                 
             # Gap and unknown residue check
@@ -228,6 +229,22 @@ def collate_fn(batch: List[Dict]) -> Dict[str, torch.Tensor]:
         'lengths_a': torch.tensor([len(item['sequence_a']) for item in batch]),
         'lengths_b': torch.tensor([len(item['sequence_b']) for item in batch])
     }
+    
+    # Add properties if available
+    if 'properties_a' in batch[0]:
+        # Pad properties
+        prop_dim = batch[0]['properties_a'].shape[-1]
+        padded_properties_a = torch.zeros(batch_size, max_len_a, prop_dim)
+        padded_properties_b = torch.zeros(batch_size, max_len_b, prop_dim)
+        
+        for i, item in enumerate(batch):
+            len_a = len(item['sequence_a'])
+            len_b = len(item['sequence_b'])
+            padded_properties_a[i, :len_a] = item['properties_a'][:len_a]
+            padded_properties_b[i, :len_b] = item['properties_b'][:len_b]
+        
+        collated['properties_a'] = padded_properties_a
+        collated['properties_b'] = padded_properties_b
     
     # Add embeddings if available
     if 'embedding_a' in batch[0]:

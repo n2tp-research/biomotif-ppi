@@ -15,12 +15,12 @@ data:
   test_split: "test"
   
   # Preprocessing
-  min_seq_length: 50
-  max_seq_length: 1000
+  min_seq_length: 0
+  max_seq_length: 50000
   remove_non_standard_aa: false
   non_standard_aa: ["B", "J", "O", "U", "X", "Z"]
-  max_gap_fraction: 0.05
-  max_unknown_fraction: 0.02
+  max_gap_fraction: 1.0  # Allow any amount of gaps
+  max_unknown_fraction: 1.0  # Allow any amount of unknown residues
   
   # Batch sizes
   train_batch_size: 32
