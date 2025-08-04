@@ -117,6 +117,7 @@ def prepare_bernett_gold_dataset(config_path: str, output_dir: str, generate_emb
         
         # Check device
         import torch
+        import h5py
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         print(f"Using device: {device}")
         
@@ -131,15 +132,42 @@ def prepare_bernett_gold_dataset(config_path: str, output_dir: str, generate_emb
         # Initialize embedding generator
         esm_generator = ESMEmbeddingGenerator(config, device=device)
         
-        # Generate embeddings
-        cache_path = esm_generator.generate_embeddings(
-            all_sequences,
-            "bernett_gold_ppi",
-            force_regenerate=True
-        )
+        # Check for existing cache
+        model_name = config['esm']['model_name'].replace('/', '_')
+        cache_path = os.path.join(cache_dir, f"bernett_gold_ppi_{model_name}_embeddings.h5")
         
-        print(f"\nEmbeddings saved to: {cache_path}")
-        print(f"Cache file size: {os.path.getsize(cache_path) / (1024**3):.2f} GB")
+        # Check which sequences need to be generated
+        sequences_to_generate = {}
+        if os.path.exists(cache_path):
+            print(f"Found existing cache at {cache_path}")
+            print("Checking for missing sequences...")
+            
+            with h5py.File(cache_path, 'r') as h5f:
+                existing_keys = set(h5f.keys())
+                needed_keys = set(all_sequences.keys())
+                missing_keys = needed_keys - existing_keys
+                
+                if missing_keys:
+                    print(f"Found {len(missing_keys)} missing sequences to generate")
+                    sequences_to_generate = {k: all_sequences[k] for k in missing_keys}
+                else:
+                    print("All sequences already have embeddings!")
+                    sequences_to_generate = {}
+        else:
+            print("No existing cache found, generating all embeddings")
+            sequences_to_generate = all_sequences
+        
+        # Generate only missing embeddings
+        if sequences_to_generate:
+            print(f"Generating embeddings for {len(sequences_to_generate)} sequences...")
+            cache_path = esm_generator.generate_embeddings(
+                sequences_to_generate,
+                "bernett_gold_ppi",
+                force_regenerate=False  # Append to existing file
+            )
+            print(f"Embeddings updated at: {cache_path}")
+        
+        print(f"\nTotal cache file size: {os.path.getsize(cache_path) / (1024**3):.2f} GB")
     else:
         print("\nSkipping embedding generation (use --generate-embeddings to enable)")
     

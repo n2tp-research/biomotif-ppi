@@ -90,20 +90,25 @@ class ESMEmbeddingGenerator:
         """
         cache_path = self._get_cache_path(dataset_name)
         
-        # Check if cache exists
-        if os.path.exists(cache_path) and not force_regenerate:
-            print(f"Cache already exists at {cache_path}")
-            return cache_path
+        # Determine whether to create new file or append
+        if os.path.exists(cache_path):
+            if force_regenerate:
+                print(f"Force regenerating cache at {cache_path}")
+                mode = 'w'  # Overwrite
+            else:
+                print(f"Appending to existing cache at {cache_path}")
+                mode = 'a'  # Append
+        else:
+            print(f"Creating new embedding cache at {cache_path}")
+            mode = 'w'  # Create new
             
-        # Create cache file
-        print(f"Creating embedding cache at {cache_path}")
-        
-        with h5py.File(cache_path, 'w') as h5f:
-            # Add metadata
-            h5f.attrs['model_name'] = self.config['esm']['model_name']
-            h5f.attrs['embedding_dim'] = self.embedding_dim
-            h5f.attrs['max_length'] = self.max_length
-            h5f.attrs['truncation_strategy'] = self.truncation_strategy
+        with h5py.File(cache_path, mode) as h5f:
+            # Add metadata only if creating new file
+            if mode == 'w':
+                h5f.attrs['model_name'] = self.config['esm']['model_name']
+                h5f.attrs['embedding_dim'] = self.embedding_dim
+                h5f.attrs['max_length'] = self.max_length
+                h5f.attrs['truncation_strategy'] = self.truncation_strategy
             
             # Process sequences in batches
             protein_ids = list(sequences.keys())
@@ -140,6 +145,10 @@ class ESMEmbeddingGenerator:
                     
                     # Save to HDF5
                     for i, protein_id in enumerate(batch_ids):
+                        # Skip if already exists (when appending)
+                        if protein_id in h5f:
+                            continue
+                            
                         # Remove padding
                         seq_len = len(batch_sequences[i]) + 2  # Account for special tokens
                         embedding = embeddings[i, :seq_len].cpu().numpy()
