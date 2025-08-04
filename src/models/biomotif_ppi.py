@@ -112,7 +112,8 @@ class BioMotifPPI(nn.Module):
         if self.use_checkpointing and 0 in self.checkpoint_layers:
             comp_result = torch.utils.checkpoint.checkpoint(
                 self.complementarity.chunked_analysis,
-                features_a, features_b, props_a, props_b, mask_a, mask_b
+                features_a, features_b, props_a, props_b, mask_a, mask_b,
+                use_reentrant=False
             )
         else:
             comp_result = self.complementarity.chunked_analysis(
@@ -152,7 +153,8 @@ class BioMotifPPI(nn.Module):
         if self.use_checkpointing and 1 in self.checkpoint_layers:
             gnn_result = torch.utils.checkpoint.checkpoint(
                 self.allosteric_gnn,
-                combined_features, combined_props, combined_mask
+                combined_features, combined_props, combined_mask,
+                use_reentrant=False
             )
         else:
             gnn_result = self.allosteric_gnn(

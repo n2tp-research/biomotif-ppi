@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler
+from torch import autocast
 from torch.utils.data import DataLoader
 from typing import Dict, Optional, Tuple, Any
 import numpy as np
@@ -153,7 +154,7 @@ class BioMotifTrainer:
             batch = self._batch_to_device(batch)
             
             # Forward pass with mixed precision
-            with autocast(enabled=self.use_amp):
+            with autocast(device_type='cuda' if self.device == 'cuda' else 'cpu', enabled=self.use_amp):
                 outputs = self.model(
                     batch['embeddings_a'],
                     batch['embeddings_b'],
@@ -254,7 +255,7 @@ class BioMotifTrainer:
             for batch in tqdm(self.val_loader, desc="Validation"):
                 batch = self._batch_to_device(batch)
                 
-                with autocast(enabled=self.use_amp):
+                with autocast(device_type='cuda' if self.device == 'cuda' else 'cpu', enabled=self.use_amp):
                     outputs = self.model(
                         batch['embeddings_a'],
                         batch['embeddings_b'],
