@@ -358,36 +358,36 @@ class AllostericGNN(nn.Module):
             alpha_prop = sample_props[:, 10]
             beta_prop = sample_props[:, 11]
             
-            # Compute pairwise features for edge prediction
-            for i in range(num_nodes):
-                for j in range(i + 1, min(i + 50, num_nodes)):  # Local window
-                    # Feature concatenation
-                    feat_i = sample_features[i]
-                    feat_j = sample_features[j]
+            # Simplified graph construction - connect sequential neighbors and sample random long-range
+            # Always connect sequential neighbors
+            for i in range(num_nodes - 1):
+                global_i = batch_indices[i]
+                global_j = batch_indices[i + 1]
+                edge_list.append([global_i, global_j])
+                edge_list.append([global_j, global_i])
+            
+            # Sample random long-range connections based on a simplified heuristic
+            # This avoids O(n²) edge prediction computation
+            num_long_range = min(num_nodes * 5, 500)  # Limit long-range edges
+            if num_nodes > 10:
+                for _ in range(num_long_range):
+                    i = torch.randint(0, num_nodes - 5, (1,)).item()
+                    j = i + torch.randint(5, min(50, num_nodes - i), (1,)).item()
                     
-                    # Distance feature
-                    distance = torch.tensor([abs(i - j)], device=features.device)
-                    log_distance = torch.log(distance + 1)
-                    
-                    # Secondary structure similarity
-                    ss_sim = alpha_prop[i] * alpha_prop[j] + beta_prop[i] * beta_prop[j]
-                    
-                    # Concatenate features
-                    edge_features = torch.cat([
-                        feat_i, feat_j, log_distance, 
-                        ss_sim.unsqueeze(0), distance.float()
-                    ])
-                    
-                    # Predict edge probability
-                    edge_prob = self.edge_mlp(edge_features)
-                    
-                    # Add edge if probability exceeds threshold
-                    if edge_prob > self.contact_threshold or abs(i - j) <= 1:
-                        # Add bidirectional edges
-                        global_i = batch_indices[i]
-                        global_j = batch_indices[j]
-                        edge_list.append([global_i, global_j])
-                        edge_list.append([global_j, global_i])
+                    if j < num_nodes:
+                        # Simple feature-based probability (no MLP for speed)
+                        feat_i = sample_features[i]
+                        feat_j = sample_features[j]
+                        
+                        # Fast similarity check using cosine similarity
+                        similarity = F.cosine_similarity(feat_i.unsqueeze(0), feat_j.unsqueeze(0)).item()
+                        
+                        # Add edge based on similarity threshold
+                        if similarity > 0.5:  # Simple threshold
+                            global_i = batch_indices[i]
+                            global_j = batch_indices[j]
+                            edge_list.append([global_i, global_j])
+                            edge_list.append([global_j, global_i])
         
         if len(edge_list) > 0:
             edge_index = torch.tensor(edge_list, device=features.device).t()
