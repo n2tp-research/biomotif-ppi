@@ -31,7 +31,13 @@ class BioMotifPPI(nn.Module):
         
         # Component MLPs
         pred_config = config['model']['prediction']
+        
+        # Direct MLP with projection layer
+        hidden_dim = config['model']['bigru']['output_dim']
+        combined_hidden_dim = hidden_dim * 2  # concatenated hidden states
+        self.direct_projection = nn.Linear(combined_hidden_dim, pred_config['direct_mlp_dims'][0])
         self.direct_mlp = self._build_mlp(pred_config['direct_mlp_dims'])
+        
         self.motif_mlp = self._build_mlp(pred_config['motif_mlp_dims'])
         self.allosteric_mlp = self._build_mlp(pred_config['allosteric_mlp_dims'])
         
@@ -90,9 +96,9 @@ class BioMotifPPI(nn.Module):
         
         # Step 3: Direct interaction score (baseline)
         combined_hidden = torch.cat([hidden_a, hidden_b], dim=-1)
-        direct_score = self.direct_mlp(
-            self.complementarity.aggregation_mlp[:4](combined_hidden)  # Reuse first layers
-        )
+        # Use the pre-initialized projection layer
+        combined_hidden_proj = self.direct_projection(combined_hidden)
+        direct_score = self.direct_mlp(combined_hidden_proj)
         
         # Step 4: Motif-based interaction score
         motif_score = self.motif_interaction(
